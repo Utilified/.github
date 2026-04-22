@@ -1,0 +1,63 @@
+name: Reusable - Dependabot Auto Merge
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check PR metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Determine if auto-merge is allowed
+        id: check_merge
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          ALERT_STATE: ${{ steps.metadata.outputs.alert-state }}
+        run: |
+          if [[ "$UPDATE_TYPE" == "version-update:semver-patch" ]] || \
+             [[ "$UPDATE_TYPE" == "version-update:semver-minor" ]] || \
+             [[ -n "$ALERT_STATE" ]]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            echo "Auto-merge allowed for update type: $UPDATE_TYPE (alert-state: $ALERT_STATE)"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "Auto-merge not allowed for update type: $UPDATE_TYPE (requires manual review)"
+          fi
+
+      - name: Approve PR
+        if: steps.check_merge.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        run: |
+          gh pr review "$PR_NUMBER" --approve --body "Auto-approving $UPDATE_TYPE update"
+
+      - name: Enable auto-merge
+        if: steps.check_merge.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr merge "$PR_NUMBER" --auto --squash
+
+      - name: Comment on PR if not auto-merged
+        if: steps.check_merge.outputs.allowed == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "⚠️ This PR requires manual review because it contains a **$UPDATE_TYPE** update, which may include breaking changes."

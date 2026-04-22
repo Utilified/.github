@@ -1,0 +1,47 @@
+name: Reusable - Lock File Maintenance (Poetry)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version for lock file refresh'
+        required: false
+        type: string
+        default: '3.12'
+
+permissions:
+  contents: write
+
+jobs:
+  update-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Update lock file
+        run: poetry lock
+
+      - name: Check for lock file changes
+        id: changes
+        run: |
+          if git diff --quiet poetry.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push lock file
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add poetry.lock
+          git commit -m "chore: update poetry.lock"
+          git push
