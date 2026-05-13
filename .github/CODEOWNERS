@@ -1,0 +1,4 @@
+# Reusable workflows are a single point of compromise across the org.
+# Every change to this repo must be reviewed by an owner before merge.
+
+* @cohenrobinson
