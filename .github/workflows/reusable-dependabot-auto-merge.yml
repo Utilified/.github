@@ -1,7 +1,22 @@
 name: Reusable - Dependabot Auto Merge
 
+# Auto-approves and enables auto-merge for low-risk Dependabot PRs.
+# Allowed: semver-patch, semver-minor, or security advisories.
+# Blocked: any update touching a package in the denylist (high-blast-radius
+# runtime deps, crypto/auth libraries, AWS/cloud SDKs, HTTP clients, etc.).
+#
+# Branch protection on the caller repo must require the security-audit and
+# CI status checks - auto-merge waits for required checks to pass before
+# merging. Without required checks, this workflow is advisory only.
+
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      extra-denylist:
+        description: "Additional comma-separated packages to exclude from auto-merge (in addition to the default org-wide denylist)."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -12,11 +27,15 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Check PR metadata
         id: metadata
-        uses: dependabot/fetch-metadata@v3
+        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v2.3.0
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
@@ -25,7 +44,38 @@ jobs:
         env:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           ALERT_STATE: ${{ steps.metadata.outputs.alert-state }}
+          DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+          EXTRA_DENYLIST: ${{ inputs.extra-denylist }}
         run: |
+          DEFAULT_DENYLIST="next,react,react-dom,react-router,react-router-dom,@remix-run/react,express,fastify,koa,django,djangorestframework,celery,gunicorn,uvicorn,openai,anthropic,@anthropic-ai/sdk,axios,node-fetch,undici,got,httpx,requests,urllib3,cryptography,bcrypt,argon2,argon2-cffi,pyjwt,jose,@auth/core,next-auth,passport,dotenv,pydantic-settings,python-dotenv,aws-cdk-lib,@aws-sdk,boto3,botocore,@mui/material,@mui/x-data-grid-premium,@mui/x-charts-premium,@mui/x-date-pickers-pro"
+
+          DENYLIST="$DEFAULT_DENYLIST"
+          if [ -n "$EXTRA_DENYLIST" ]; then
+            DENYLIST="$DENYLIST,$EXTRA_DENYLIST"
+          fi
+
+          NORMALIZED_DENY=$(echo "$DENYLIST" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sort -u)
+          NORMALIZED_DEPS=$(echo "$DEPENDENCY_NAMES" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sort -u)
+
+          DENIED=""
+          for dep in $NORMALIZED_DEPS; do
+            [ -z "$dep" ] && continue
+            for denied in $NORMALIZED_DENY; do
+              [ -z "$denied" ] && continue
+              if [ "$dep" = "$denied" ] || echo "$dep" | grep -q "^${denied}/"; then
+                DENIED="$DENIED $dep"
+                break
+              fi
+            done
+          done
+
+          if [ -n "$DENIED" ]; then
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "denied_packages=$DENIED" >> "$GITHUB_OUTPUT"
+            echo "Auto-merge blocked by denylist:$DENIED"
+            exit 0
+          fi
+
           if [[ "$UPDATE_TYPE" == "version-update:semver-patch" ]] || \
              [[ "$UPDATE_TYPE" == "version-update:semver-minor" ]] || \
              [[ -n "$ALERT_STATE" ]]; then
@@ -53,11 +103,20 @@ jobs:
         run: |
           gh pr merge "$PR_NUMBER" --auto --squash
 
-      - name: Comment on PR if not auto-merged
-        if: steps.check_merge.outputs.allowed == 'false'
+      - name: Comment on PR if not auto-merged (denylist)
+        if: steps.check_merge.outputs.allowed == 'false' && steps.check_merge.outputs.denied_packages != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DENIED: ${{ steps.check_merge.outputs.denied_packages }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "Auto-merge blocked - package(s) on the org-wide denylist require manual review:**$DENIED**"
+
+      - name: Comment on PR if not auto-merged (major)
+        if: steps.check_merge.outputs.allowed == 'false' && steps.check_merge.outputs.denied_packages == ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "⚠️ This PR requires manual review because it contains a **$UPDATE_TYPE** update, which may include breaking changes."
+          gh pr comment "$PR_NUMBER" --body "This PR requires manual review because it contains a **$UPDATE_TYPE** update, which may include breaking changes."
