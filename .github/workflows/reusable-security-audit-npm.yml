@@ -2,7 +2,9 @@ name: Reusable - Security Audit (npm)
 
 # Blocking dependency-vulnerability gate for npm projects.
 # Combines:
-#   - npm audit (production deps, high+ severity)
+#   - npm audit (production deps, high+ severity) with optional GHSA allowlist
+#     for advisories bundled inside framework deps that can't be patched
+#     via npm overrides (e.g. fast-uri inside aws-cdk-lib)
 #   - npm audit signatures (verifies registry signatures - catches some
 #     supply-chain compromises that bypass CVE feeds)
 #   - GitHub dependency-review-action (PR-only, OPT-IN via input -
@@ -36,6 +38,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow-advisories:
+        description: "Whitespace-separated GHSA ids to allowlist (for advisories inside framework deps that can't be patched via npm overrides). Empty means no allowlist."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -67,20 +74,56 @@ jobs:
       - name: npm audit (production deps)
         env:
           AUDIT_LEVEL: ${{ inputs.audit-level }}
-        run: npm audit --omit=dev --audit-level="$AUDIT_LEVEL"
+          ALLOW_ADVISORIES: ${{ inputs.allow-advisories }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ALLOW_ADVISORIES// /}" ]; then
+            npm audit --omit=dev --audit-level="$AUDIT_LEVEL"
+            exit 0
+          fi
+
+          # Allowlist mode: parse audit JSON, compare advisories at or above
+          # AUDIT_LEVEL against the allowlist. Pass only if every finding is
+          # explicitly allowlisted; warn if an allowlisted advisory is no
+          # longer present (drift signal).
+          ALLOWED=$(printf '%s\n' $ALLOW_ADVISORIES | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | sort -u)
+
+          AUDIT_JSON=$(npm audit --omit=dev --json 2>/dev/null || true)
+          FOUND=$(printf '%s' "$AUDIT_JSON" | jq -r --arg lvl "$AUDIT_LEVEL" '
+              # Severity ordering: low < moderate < high < critical
+              ($lvl | ascii_downcase) as $threshold
+              | { low:0, moderate:1, high:2, critical:3 } as $rank
+              | .vulnerabilities
+              | to_entries
+              | map(.value.via[]?)
+              | map(select(type == "object" and ($rank[.severity // ""] // -1) >= ($rank[$threshold] // 2)))
+              | map((.url // "") | capture("(?<id>GHSA-[a-z0-9-]+)"; "i").id // empty)
+              | unique
+              | .[]
+            ' | sort -u)
+
+          UNEXPECTED=$(comm -23 <(printf '%s\n' "$FOUND") <(printf '%s\n' "$ALLOWED"))
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Unexpected $AUDIT_LEVEL+ advisories not in allowlist:"
+            echo "$UNEXPECTED"
+            echo "---"
+            npm audit --omit=dev --audit-level="$AUDIT_LEVEL" || true
+            exit 1
+          fi
+
+          STALE=$(comm -13 <(printf '%s\n' "$FOUND") <(printf '%s\n' "$ALLOWED"))
+          if [ -n "$STALE" ]; then
+            echo "::warning::Allowlisted advisories no longer present - remove from caller workflow:"
+            echo "$STALE"
+          fi
+          echo "All $AUDIT_LEVEL+ advisories are allowlisted."
 
       - name: npm audit signatures
-        # Verifies that every installed package has a valid signature from
-        # the npm registry. Catches some supply-chain compromises before
-        # they appear in CVE databases.
         run: npm audit signatures
 
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
-    # dependency-review-action requires the GitHub dependency graph API,
-    # which on private repos needs GitHub Advanced Security. Off by
-    # default; flip the input on per-repo once GHAS is licensed.
     if: github.event_name == 'pull_request' && inputs.enable-dependency-review
     steps:
       - uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
