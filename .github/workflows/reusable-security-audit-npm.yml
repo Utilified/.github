@@ -5,7 +5,8 @@ name: Reusable - Security Audit (npm)
 #   - npm audit (production deps, high+ severity)
 #   - npm audit signatures (verifies registry signatures - catches some
 #     supply-chain compromises that bypass CVE feeds)
-#   - GitHub dependency-review-action (PR-only: license + advisory diff)
+#   - GitHub dependency-review-action (PR-only, OPT-IN via input -
+#     requires GitHub Advanced Security on private repos)
 #   - step-security/harden-runner (network egress audit/block, catches
 #     unexpected outbound from compromised packages)
 #
@@ -30,6 +31,11 @@ on:
         required: false
         type: string
         default: "."
+      enable-dependency-review:
+        description: "Enable GitHub dependency-review-action (requires GHAS on private repos)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -72,7 +78,10 @@ jobs:
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # dependency-review-action requires the GitHub dependency graph API,
+    # which on private repos needs GitHub Advanced Security. Off by
+    # default; flip the input on per-repo once GHAS is licensed.
+    if: github.event_name == 'pull_request' && inputs.enable-dependency-review
     steps:
       - uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
         with:
