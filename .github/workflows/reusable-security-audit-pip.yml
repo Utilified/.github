@@ -3,7 +3,8 @@ name: Reusable - Security Audit (pip/poetry)
 # Blocking dependency-vulnerability gate for Python/Poetry projects.
 # Combines:
 #   - pip-audit --strict (fails on ANY advisory)
-#   - GitHub dependency-review-action (PR-only: license + advisory diff)
+#   - GitHub dependency-review-action (PR-only, OPT-IN via input -
+#     requires GitHub Advanced Security on private repos)
 #   - step-security/harden-runner (network egress audit)
 
 on:
@@ -19,6 +20,11 @@ on:
         required: false
         type: string
         default: "2.7.3"
+      enable-dependency-review:
+        description: "Enable GitHub dependency-review-action (requires GHAS on private repos)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -65,7 +71,7 @@ jobs:
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && inputs.enable-dependency-review
     steps:
       - uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
         with:
