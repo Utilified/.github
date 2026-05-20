@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: false
+      ignore-vulns:
+        description: "Space-separated advisory IDs to suppress (e.g. 'PYSEC-2025-183'). Each caller MUST justify suppressions in their wrapper workflow. Use only for disputed or unfixable advisories."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -64,9 +69,15 @@ jobs:
         run: pip install "pip-audit==${PIP_AUDIT_VERSION}"
 
       - name: Run pip-audit (strict, fail on any finding)
+        env:
+          IGNORE_VULNS: ${{ inputs.ignore-vulns }}
         run: |
           poetry export -f requirements.txt --without-hashes --output requirements.audit.txt
-          pip-audit --strict --requirement requirements.audit.txt --desc on
+          ignore_args=""
+          for vuln in $IGNORE_VULNS; do
+            ignore_args="$ignore_args --ignore-vuln $vuln"
+          done
+          pip-audit --strict --requirement requirements.audit.txt --desc on $ignore_args
 
   dependency-review:
     name: Dependency Review
