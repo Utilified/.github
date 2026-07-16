@@ -20,9 +20,11 @@ on:
         required: false
         type: string
         default: ''
-    secrets:
-      claude-code-oauth-token:
-        required: true
+    # No declared `secrets:` — GitHub secret names cannot contain hyphens, so
+    # declaring `claude-code-oauth-token` here (and passing it from callers)
+    # was rejected at parse time and produced a 0s startup_failure on every
+    # run. Callers pass `secrets: inherit`, and the token is read directly as
+    # ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} below.
 
 jobs:
   claude:
@@ -51,10 +53,7 @@ jobs:
       - name: Run Claude Code
         uses: anthropics/claude-code-action@v1
         with:
-          # Hyphenated secret names require index syntax — dot access
-          # (secrets.claude-code-oauth-token) is parsed as subtraction and
-          # fails to compile, producing a 0s startup_failure on every run.
-          claude_code_oauth_token: ${{ secrets['claude-code-oauth-token'] }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           additional_permissions: |
             actions: read
           prompt: ${{ inputs.prompt }}

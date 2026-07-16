@@ -30,8 +30,7 @@ on:
 jobs:
   claude:
     uses: Utilified/.github/.github/workflows/reusable-claude.yml@main
-    secrets:
-      claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    secrets: inherit
 ```
 
 ```yaml
