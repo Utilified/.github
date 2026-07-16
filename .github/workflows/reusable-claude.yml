@@ -49,9 +49,12 @@ jobs:
           fetch-depth: 1
 
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@de8e0b9c42c6cb58e904c857f164aa072244c1ac # beta
+        uses: anthropics/claude-code-action@v1
         with:
-          claude_code_oauth_token: ${{ secrets.claude-code-oauth-token }}
+          # Hyphenated secret names require index syntax — dot access
+          # (secrets.claude-code-oauth-token) is parsed as subtraction and
+          # fails to compile, producing a 0s startup_failure on every run.
+          claude_code_oauth_token: ${{ secrets['claude-code-oauth-token'] }}
           additional_permissions: |
             actions: read
           prompt: ${{ inputs.prompt }}
