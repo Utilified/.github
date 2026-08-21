@@ -24,10 +24,33 @@ jobs:
       - name: Install dependencies (no lifecycle scripts)
         run: npm install --ignore-scripts
 
+      # npm drops the `libc` discriminators off native-binary entries when it
+      # rewrites a lock file. Those keys are how it tells the glibc and musl
+      # builds apart, so without them an install inside a musl container can
+      # resolve a glibc binary and fail at runtime rather than at install time.
+      #
+      # This has to be caught here. The PR below is authored with GITHUB_TOKEN,
+      # and GitHub suppresses `pull_request` triggers for GITHUB_TOKEN-authored
+      # events — so the refresh PR gets no checks at all, and a silent
+      # deletion-only diff would otherwise merge on a glance.
+      - name: Refuse a refresh that drops libc discriminators
+        run: |
+          removed=$(git diff -U0 -- package-lock.json | grep -c '^-.*"libc"' || true)
+          added=$(git diff -U0 -- package-lock.json | grep -c '^+.*"libc"' || true)
+          if [ "$removed" -gt "$added" ]; then
+            echo "::error::This refresh removes $((removed - added)) libc discriminator(s) from package-lock.json."
+            echo "The glibc/musl split for native binaries would be lost. Not opening a PR."
+            git diff -U0 -- package-lock.json | grep -B2 '^-.*"libc"' || true
+            exit 1
+          fi
+          echo "libc discriminators intact (removed=$removed added=$added)"
+
       # Consumers protect `main`, so pushing the refreshed lock file directly
       # is rejected with GH006 on every week the lock actually changes
-      # (Utilified/.github#7). Open a PR instead — it also gives the refresh
-      # a CI run before it lands.
+      # (Utilified/.github#7). Open a PR instead, so a human sees the change.
+      # Note it does NOT get a CI run: create-pull-request authors with
+      # GITHUB_TOKEN, and GitHub suppresses `pull_request` triggers for
+      # GITHUB_TOKEN-authored events. The guard above is the only gate.
       - name: Open lock file PR
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
