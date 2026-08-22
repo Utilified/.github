@@ -35,15 +35,71 @@ jobs:
       # deletion-only diff would otherwise merge on a glance.
       - name: Refuse a refresh that drops libc discriminators
         run: |
-          removed=$(git diff -U0 -- package-lock.json | grep -c '^-.*"libc"' || true)
-          added=$(git diff -U0 -- package-lock.json | grep -c '^+.*"libc"' || true)
-          if [ "$removed" -gt "$added" ]; then
-            echo "::error::This refresh removes $((removed - added)) libc discriminator(s) from package-lock.json."
-            echo "The glibc/musl split for native binaries would be lost. Not opening a PR."
-            git diff -U0 -- package-lock.json | grep -B2 '^-.*"libc"' || true
+          set -euo pipefail
+
+          lock=package-lock.json
+
+          # Fail closed. "I found no problem" and "I inspected nothing" must not
+          # print the same line, so anything that leaves the guard with nothing
+          # to look at is an error, not a pass.
+          if [ ! -f "$lock" ]; then
+            echo "::error::No $lock at the repository root, so the libc guard could not inspect this refresh. Not opening a PR."
             exit 1
           fi
-          echo "libc discriminators intact (removed=$removed added=$added)"
+          if ! git cat-file -e "HEAD:$lock" 2>/dev/null; then
+            echo "::error::$lock is not tracked at the repository root in HEAD, so the libc guard has no baseline to compare against. Not opening a PR."
+            exit 1
+          fi
+
+          if git diff --quiet -- "$lock"; then
+            echo "$lock is unchanged by this refresh - nothing to verify, and nothing to open a PR for."
+            exit 0
+          fi
+
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          git show "HEAD:$lock" > "$work/before.json"
+
+          has_packages() { jq -e '(.packages? | type) == "object"' "$1" >/dev/null 2>&1; }
+          if ! has_packages "$work/before.json"; then
+            echo "::error::$lock in HEAD has no \"packages\" map (unreadable or an unexpected lock file version), so there is nothing the libc guard can compare. Not opening a PR."
+            exit 1
+          fi
+          if ! has_packages "$lock"; then
+            echo "::error::The refreshed $lock has no \"packages\" map (unreadable or an unexpected lock file version). Not opening a PR."
+            exit 1
+          fi
+
+          # Compare per-entry identity, not a net line count. Counting treats
+          # libc keys as fungible, so a refresh that strips the key off one
+          # entry while adding a new native package carrying its own cancels to
+          # zero - which is precisely the churn this guard exists to catch.
+          libc_paths() {
+            jq -r '.packages | to_entries[] | select(.value.libc != null) | .key' "$1" | LC_ALL=C sort
+          }
+          libc_paths "$work/before.json" > "$work/libc-before"
+          libc_paths "$lock" > "$work/libc-after"
+          jq -r '.packages | keys[]' "$lock" | LC_ALL=C sort > "$work/entries-after"
+
+          # Lost the key but kept the entry = the discriminator was stripped.
+          # Lost the key along with the entry = the dependency is simply gone,
+          # which is a legitimate refresh and must not trip the guard.
+          comm -23 "$work/libc-before" "$work/libc-after" > "$work/untagged"
+          comm -12 "$work/untagged" "$work/entries-after" > "$work/stripped"
+
+          if [ -s "$work/stripped" ]; then
+            echo "::error::This refresh strips the libc discriminator from $(wc -l < "$work/stripped" | tr -d ' ') package-lock.json entry/entries that still exist."
+            echo "The glibc/musl split for native binaries would be lost. Not opening a PR. Affected entries:"
+            sed 's/^/  - /' "$work/stripped"
+            exit 1
+          fi
+
+          tagged=$(wc -l < "$work/libc-before" | tr -d ' ')
+          if [ "$tagged" -eq 0 ]; then
+            echo "No entry in $lock carried a libc discriminator before this refresh, so none could be lost."
+          else
+            echo "libc discriminators intact: all $tagged tagged entry/entries either kept theirs or were removed outright."
+          fi
 
       # Consumers protect `main`, so pushing the refreshed lock file directly
       # is rejected with GH006 on every week the lock actually changes
