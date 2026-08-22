@@ -1,0 +1,43 @@
+name: Self-tests
+
+# The reusable workflows here are consumed org-wide, and their `run:` blocks get
+# no exercise in this repo otherwise. `tests/` holds shell harnesses that pull a
+# step's script straight out of its YAML and run it against scratch fixtures.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "tests/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "tests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Run shell test harnesses
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          harnesses=(tests/*.test.sh)
+          if [ ${#harnesses[@]} -eq 0 ]; then
+            echo "::error::No harnesses found under tests/ - this job would otherwise pass having run nothing."
+            exit 1
+          fi
+          for t in "${harnesses[@]}"; do
+            echo "==> $t"
+            bash "$t"
+          done
