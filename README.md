@@ -70,6 +70,17 @@ jobs:
       python-version: "3.12"
 ```
 
+## Tests
+
+`tests/*.test.sh` exercise the non-trivial `run:` blocks in the reusable
+workflows. A harness extracts the step's script out of its YAML and runs it
+against scratch git repos, so there is no second copy to drift. `self-test.yml`
+runs them on every PR touching `.github/workflows/` or `tests/`.
+
+```sh
+bash tests/lock-file-libc-guard.test.sh
+```
+
 ## Not in this repo
 
 Two workflows stay per-repo because their content is project-specific:
