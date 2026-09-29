@@ -8,10 +8,11 @@ on:
           Optional CLI args forwarded to claude-code-action via its
           `claude_args` input. Use for things like
           `--allowedTools "Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"`
-          or `--model claude-opus-4-7`.
+          or `--model claude-sonnet-5-5`. Passing this replaces the default,
+          so include `--model`/`--effort` if you still want them pinned.
         required: false
         type: string
-        default: ''
+        default: '--model claude-opus-5-5 --effort high'
       prompt:
         description: |
           Optional explicit prompt for claude-code-action. Leave empty to
@@ -51,7 +52,7 @@ jobs:
           fetch-depth: 1
 
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@8ce9314fa9a404564fa7e954cd84f25bcba2b829 # v1.0.236
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           additional_permissions: |
