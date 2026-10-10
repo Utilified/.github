@@ -1,7 +1,8 @@
 name: Reusable - Dependabot Auto Merge
 
 # Auto-approves and enables auto-merge for low-risk Dependabot PRs.
-# Allowed: semver-patch, semver-minor, or security advisories.
+# Allowed: semver-patch or semver-minor (security advisories included).
+# Majors always need manual review, even when they fix a security advisory.
 # Blocked: any update touching a package in the denylist (high-blast-radius
 # runtime deps, crypto/auth libraries, AWS/cloud SDKs, HTTP clients, etc.).
 #
@@ -76,9 +77,10 @@ jobs:
             exit 0
           fi
 
+          # A security advisory doesn't make a major bump safe: majors always
+          # go to manual review, security or not.
           if [[ "$UPDATE_TYPE" == "version-update:semver-patch" ]] || \
-             [[ "$UPDATE_TYPE" == "version-update:semver-minor" ]] || \
-             [[ -n "$ALERT_STATE" ]]; then
+             [[ "$UPDATE_TYPE" == "version-update:semver-minor" ]]; then
             echo "allowed=true" >> "$GITHUB_OUTPUT"
             echo "Auto-merge allowed for update type: $UPDATE_TYPE (alert-state: $ALERT_STATE)"
           else
@@ -118,5 +120,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          ALERT_STATE: ${{ steps.metadata.outputs.alert-state }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "This PR requires manual review because it contains a **$UPDATE_TYPE** update, which may include breaking changes."
+          BODY="This PR requires manual review because it contains a **$UPDATE_TYPE** update, which may include breaking changes."
+          if [ -n "$ALERT_STATE" ]; then
+            BODY="$BODY It is a **security update** (advisory state: $ALERT_STATE), so please review it promptly."
+          fi
+          gh pr comment "$PR_NUMBER" --body "$BODY"
