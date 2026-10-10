@@ -1,0 +1,171 @@
+name: Reusable - Resolve generated-file conflicts
+
+# Branch protection no longer requires PRs to be up to date with main, so the
+# one thing that still forces an update is a merge conflict, and most of those
+# are in generated files (platform-api's schema.json, the frontends' API types)
+# that two PRs regenerated independently. On every push to main this finds
+# open PRs whose ONLY conflicts are in generated files, merges main, takes
+# main's copy of those files, regenerates them and pushes, so CI reruns and
+# auto-merge can finish. A PR with any other conflict is left alone.
+#
+# Pushes need a GitHub App token: a push made with GITHUB_TOKEN does not start
+# workflow runs, so the PR's required checks would never rerun. The app needs
+# contents: write and pull-requests: read on the calling repo.
+
+on:
+  workflow_call:
+    inputs:
+      generated-paths:
+        description: "Space-separated paths that are safe to regenerate (exact paths, no globs)."
+        required: true
+        type: string
+      regen-command:
+        description: "Shell command that regenerates every generated path."
+        required: true
+        type: string
+      runtime:
+        description: "python (poetry install) or node (npm ci)."
+        required: true
+        type: string
+      with-platform-api:
+        description: "Check out Utilified/platform-api main at ../platform-api (frontends generate types from its schema.json)."
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      app-id:
+        required: true
+      app-private-key:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: resolve-generated-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    outputs:
+      branches: ${{ steps.find.outputs.branches }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # GitHub computes mergeability lazily after a push to main; ask once,
+          # give it a moment, then read the settled state.
+          gh pr list -R "$GITHUB_REPOSITORY" --state open --limit 200 --json number >/dev/null
+          sleep 20
+          branches=$(gh pr list -R "$GITHUB_REPOSITORY" --state open --limit 200 \
+            --json headRefName,mergeable,isCrossRepository,author \
+            --jq '[.[] | select(.mergeable == "CONFLICTING" and (.isCrossRepository | not) and (.author.is_bot | not)) | .headRefName]')
+          echo "Conflicting PR branches: $branches"
+          echo "branches=$branches" >> "$GITHUB_OUTPUT"
+
+  resolve:
+    needs: find
+    if: needs.find.outputs.branches != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        branch: ${{ fromJSON(needs.find.outputs.branches) }}
+    services:
+      # platform-api settings expect a database; schema generation does not
+      # query it, but having one keeps the environment identical to CI.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: generated
+        ports: ["5432:5432"]
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.branch }}
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Merge main, keeping only generated-file conflicts
+        id: merge
+        env:
+          GENERATED: ${{ inputs.generated-paths }}
+        run: |
+          git config user.name "utilified-ci[bot]"
+          git config user.email "utilified-ci[bot]@users.noreply.github.com"
+          if git merge --no-edit origin/main; then
+            echo "Merged cleanly; nothing to resolve."
+            echo "resolve=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          conflicted=$(git diff --name-only --diff-filter=U)
+          for f in $conflicted; do
+            if ! printf ' %s ' "$GENERATED" | grep -qF " $f "; then
+              echo "::notice::$f is not a generated file; leaving this PR for a human."
+              git merge --abort
+              echo "resolve=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          # Take main's copy, then regenerate so the PR's own changes come back.
+          git checkout origin/main -- $conflicted
+          git add $conflicted
+          echo "resolve=true" >> "$GITHUB_OUTPUT"
+
+      - if: steps.merge.outputs.resolve == 'true' && inputs.with-platform-api
+        uses: actions/checkout@v6
+        with:
+          repository: Utilified/platform-api
+          path: _platform-api
+          token: ${{ steps.token.outputs.token }}
+
+      - if: steps.merge.outputs.resolve == 'true' && inputs.with-platform-api
+        run: mv _platform-api ../platform-api
+
+      - if: steps.merge.outputs.resolve == 'true' && inputs.runtime == 'python'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - if: steps.merge.outputs.resolve == 'true' && inputs.runtime == 'python'
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - if: steps.merge.outputs.resolve == 'true' && inputs.runtime == 'python'
+        run: poetry install --no-interaction
+
+      - if: steps.merge.outputs.resolve == 'true' && inputs.runtime == 'node'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - if: steps.merge.outputs.resolve == 'true' && inputs.runtime == 'node'
+        run: npm ci --ignore-scripts
+
+      - name: Regenerate and push
+        if: steps.merge.outputs.resolve == 'true'
+        env:
+          GENERATED: ${{ inputs.generated-paths }}
+          REGEN: ${{ inputs.regen-command }}
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          bash -c "$REGEN"
+          git add $GENERATED
+          git commit --no-edit
+          git push origin "HEAD:$BRANCH"
+          echo "::notice::Merged main into $BRANCH and regenerated generated files."
