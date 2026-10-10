@@ -10,6 +10,7 @@ Shared GitHub Actions reusable workflows and org-level defaults for Utilified re
 | `reusable-dependabot-auto-merge.yml` | Auto-approve+merge Dependabot patch/minor/security PRs | All repos |
 | `reusable-lock-file-npm.yml` | Weekly `npm install` + commit `package-lock.json` | Node repos |
 | `reusable-lock-file-poetry.yml` | Weekly `poetry lock` + commit `poetry.lock` | Python repos |
+| `reusable-pr-title.yml` | Fail a PR whose title is not a conventional commit (release-please reads it) | All repos |
 
 ## How to call from a service repo
 
@@ -68,6 +69,17 @@ jobs:
     uses: Utilified/.github/.github/workflows/reusable-lock-file-poetry.yml@main
     with:
       python-version: "3.12"
+```
+
+```yaml
+# .github/workflows/pr-title.yml
+name: PR Title
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+jobs:
+  check:
+    uses: Utilified/.github/.github/workflows/reusable-pr-title.yml@main
 ```
 
 ## Tests
