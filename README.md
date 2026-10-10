@@ -11,6 +11,7 @@ Shared GitHub Actions reusable workflows and org-level defaults for Utilified re
 | `reusable-lock-file-npm.yml` | Weekly `npm install` + commit `package-lock.json` | Node repos |
 | `reusable-lock-file-poetry.yml` | Weekly `poetry lock` + commit `poetry.lock` | Python repos |
 | `reusable-pr-title.yml` | Fail a PR whose title is not a conventional commit (release-please reads it) | All repos |
+| `reusable-resolve-generated-conflicts.yml` | On push to main, merge main into PRs whose only conflicts are generated files, regenerate, push | Repos with generated files |
 
 ## How to call from a service repo
 
