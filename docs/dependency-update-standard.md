@@ -6,11 +6,11 @@ Org reference for how every Utilified repo keeps dependencies current.
 
 One entry per ecosystem present:
 
-- Schedule: weekly, Friday 21:00 Australia/Melbourne.
+- Schedule (21:00 Australia/Melbourne): language ecosystems weekly on Friday; github-actions, docker and gitsubmodule monthly. Actions and base-image bumps land in every repo at once, so monthly cuts the cross-repo PR churn without delaying security fixes (those bypass the schedule).
 - Cooldown: default 5 days, semver-major 7, semver-minor 5, semver-patch 3.
 - `open-pull-requests-limit`: 5 for language ecosystems (npm/pip/poetry), 3 for github-actions/docker/gitsubmodule.
 - `assignees: [cohenrobinson]`, `labels: [dependencies, <ecosystem>]`, `target-branch: main`.
-- Language ecosystems: group minor/patch (npm: `production-minor-patch` plus `development-deps` by dependency type; pip: `minor-patch-updates` on `*`). Majors stay ungrouped. Keep existing repo-specific groups and ignores (e.g. the aws-cdk lockstep group, react group, eslint ignore) and their comments.
+- Language ecosystems: group minor/patch (npm: `production-minor-patch` plus `development-deps` by dependency type; pip: `minor-patch-updates` on `*`). Also a `security-updates` group (`applies-to: security-updates`, `*`, minor/patch) so advisory fixes arrive as one PR. Majors stay ungrouped. Keep existing repo-specific groups and ignores (e.g. the aws-cdk lockstep group, react group, eslint ignore) and their comments.
 - github-actions: group `github-actions-all` on `*`.
 - docker: one entry per directory containing a Dockerfile, group `docker-all` on `*`.
 - gitsubmodule (parent monorepo only): group all.
