@@ -1,0 +1,30 @@
+name: Reusable - PR Title
+
+# The squash commit takes its subject from the PR title, and release-please
+# only sees conventional-commit types, so an unprefixed title is dropped from
+# the changelog and, if it is the only commit since the last tag, no release
+# is cut at all. Check the title on the PR, where it is cheap to fix.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the title is a conventional commit
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Types mirror the release-please changelog-sections.
+          types='feat|fix|audit|perf|revert|chore|docs|refactor|test|ci|build|style|deps'
+          if printf '%s' "$TITLE" | grep -qE "^($types)(\([a-z0-9 ._/-]+\))?!?: .+"; then
+            echo "OK: $TITLE"
+            exit 0
+          fi
+          echo "::error::PR title is not a conventional commit: '$TITLE'"
+          echo "Expected '<type>(<optional scope>): <description>', type one of: $types"
+          exit 1
