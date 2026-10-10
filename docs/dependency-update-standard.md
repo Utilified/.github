@@ -1,0 +1,27 @@
+# Dependency-update standard
+
+Org reference for how every Utilified repo keeps dependencies current.
+
+## Dependabot (`.github/dependabot.yml`)
+
+One entry per ecosystem present:
+
+- Schedule: weekly, Friday 21:00 Australia/Melbourne.
+- Cooldown: default 5 days, semver-major 7, semver-minor 5, semver-patch 3.
+- `open-pull-requests-limit`: 5 for language ecosystems (npm/pip/poetry), 3 for github-actions/docker/gitsubmodule.
+- `assignees: [cohenrobinson]`, `labels: [dependencies, <ecosystem>]`, `target-branch: main`.
+- Language ecosystems: group minor/patch (npm: `production-minor-patch` plus `development-deps` by dependency type; pip: `minor-patch-updates` on `*`). Majors stay ungrouped. Keep existing repo-specific groups and ignores (e.g. the aws-cdk lockstep group, react group, eslint ignore) and their comments.
+- github-actions: group `github-actions-all` on `*`.
+- docker: one entry per directory containing a Dockerfile, group `docker-all` on `*`.
+- gitsubmodule (parent monorepo only): group all.
+
+## Auto-merge
+
+`reusable-dependabot-auto-merge.yml` approves and auto-merges semver-patch and semver-minor updates, including security fixes. Majors always get a manual-review comment, flagged as a security update when they fix an advisory. Packages on the org-wide denylist (plus any caller `extra-denylist`) always need manual review.
+
+## Workflows
+
+- Pin every `uses:` that isn't a local `./` path to a full 40-char commit SHA with a trailing `# vX.Y.Z` comment. Use the major already referenced, resolved to its exact latest release tag; don't upgrade majors while pinning. Resolve with `gh api repos/OWNER/REPO/commits/TAG -q .sha` (for annotated tags, `git ls-remote https://github.com/OWNER/REPO refs/tags/TAG^{}`).
+- Calls to `Utilified/.github/.github/workflows/*.yml@main` are pinned to a commit SHA with a `# main` comment; Dependabot's github-actions ecosystem bumps it.
+- The first step of each job in CI/security workflows that run third-party code is `step-security/harden-runner` (pinned) with `egress-policy: audit`. Jobs that only call reusable workflows are exempt.
+- Top-level `permissions:` is least-privilege (`contents: read` by default) where missing.
