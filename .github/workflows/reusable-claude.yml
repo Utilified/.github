@@ -10,6 +10,8 @@ on:
           `--allowedTools "Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"`
           or `--model claude-sonnet-5-5`. Passing this replaces the default,
           so include `--model`/`--effort` if you still want them pinned.
+          `--setting-sources user` is always appended and cannot be
+          overridden: repo `.claude/settings.json` never loads.
         required: false
         type: string
         default: '--model claude-opus-5-5 --effort high'
@@ -52,10 +54,21 @@ jobs:
           fetch-depth: 1
 
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@6c690188da61cf16ee7debb28383ba67f02abb4c # v1.0.242
+        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           additional_permissions: |
             actions: read
           prompt: ${{ inputs.prompt }}
-          claude_args: ${{ inputs.claude-args }}
+          # --setting-sources user is enforced, never left to callers: on a PR
+          # the action restores .claude/ from the base branch, so the repo's
+          # committed settings load as-is. Those are laptop config and can
+          # carry hooks that call PR-controlled scripts (they run before any
+          # tool gating, with the Claude token in the env) and broad Bash
+          # allow lists that merge with --allowedTools. It comes last because
+          # the action keeps the last value of a repeated flag. Side effect:
+          # CLAUDE.md/AGENTS.md no longer auto-load, and project allow lists
+          # don't apply; callers grant tools explicitly via claude-args.
+          claude_args: |
+            ${{ inputs.claude-args }}
+            --setting-sources user
