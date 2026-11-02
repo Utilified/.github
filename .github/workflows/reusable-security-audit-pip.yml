@@ -10,6 +10,21 @@ name: Reusable - Security Audit (pip/poetry)
 on:
   workflow_call:
     inputs:
+      working-directory:
+        description: "Directory containing pyproject.toml (for monorepos)"
+        required: false
+        type: string
+        default: "."
+      runs-on:
+        description: "Runner label"
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      poetry-version:
+        description: "Poetry version"
+        required: false
+        type: string
+        default: "latest"
       python-version:
         description: "Python version"
         required: false
@@ -38,7 +53,10 @@ permissions:
 jobs:
   pip-audit:
     name: pip-audit (gate)
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
     steps:
       - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
@@ -52,7 +70,7 @@ jobs:
 
       - uses: snok/install-poetry@a783c322200f0519c7926aa6faa857c4e23e9263 # v1.4.2
         with:
-          version: latest
+          version: ${{ inputs.poetry-version }}
           virtualenvs-create: true
           virtualenvs-in-project: true
 
