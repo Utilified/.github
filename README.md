@@ -1,6 +1,6 @@
 # Utilified — org `.github` repo
 
-Shared GitHub Actions reusable workflows and org-level defaults for Utilified repositories.
+Shared GitHub Actions reusable workflows, the org profile (`profile/README.md`) and org-level defaults for Utilified repositories.
 
 ## Reusable workflows
 
@@ -12,10 +12,12 @@ Shared GitHub Actions reusable workflows and org-level defaults for Utilified re
 | `reusable-lock-file-poetry.yml` | Weekly `poetry lock` + commit `poetry.lock` | Python repos |
 | `reusable-pr-title.yml` | Fail a PR whose title is not a conventional commit (release-please reads it) | All repos |
 | `reusable-resolve-generated-conflicts.yml` | On push to main, merge main into PRs whose only conflicts are generated files, regenerate, push | Repos with generated files |
+| `reusable-security-audit-npm.yml` | Blocking dependency gate: `npm audit` (high+), registry signature check, optional dependency review | Node repos |
+| `reusable-security-audit-pip.yml` | Blocking dependency gate for Python projects (pip-audit) | Python repos |
 
 ## How to call from a service repo
 
-Each service repo's `.github/workflows/` should contain thin caller files:
+Each service repo's `.github/workflows/` should contain thin caller files. The examples use `@main` for readability; real callers pin a commit SHA with a `# main` comment so Dependabot can bump it (see [`docs/dependency-update-standard.md`](docs/dependency-update-standard.md)):
 
 ```yaml
 # .github/workflows/claude.yml
@@ -96,13 +98,4 @@ bash tests/lock-file-libc-guard.test.sh
 
 ## Not in this repo
 
-Two workflows stay per-repo because their content is project-specific:
-
-- `claude-code-review.yml` — `direct_prompt` differs meaningfully per codebase (Django, Next.js main, Next.js portal, CDK, MCP).
-- `security.yml` — uses pip-audit (Python) or ecosystem-specific equivalents; content diverges.
-
-## Setup
-
-1. Create this repo on GitHub as `Utilified/.github` (the special org-level `.github` repo).
-2. Copy the contents of this directory into it (including the hidden `.github/workflows/` subdirectory).
-3. Push to `main`. Reusable workflows are immediately callable from any Utilified repo.
+`claude-code-review.yml` stays per-repo because its review prompt differs meaningfully per codebase (Django, Next.js, CDK, MCP).
