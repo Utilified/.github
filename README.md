@@ -6,14 +6,14 @@ Shared GitHub Actions reusable workflows, the org profile (`profile/README.md`) 
 
 | Workflow | Purpose | Used by |
 |---|---|---|
-| `reusable-claude.yml` | `@claude` bot — responds to mentions in issues/comments | All repos |
+| `reusable-claude.yml` | `@claude` bot for the repo's own people, with an explicit tool list and one secret | All repos |
 | `reusable-dependabot-auto-merge.yml` | Auto-approve+merge Dependabot patch/minor/security PRs | All repos |
 | `reusable-lock-file-npm.yml` | Weekly `npm install` + commit `package-lock.json` | Node repos |
 | `reusable-lock-file-poetry.yml` | Weekly `poetry lock` + commit `poetry.lock` | Python repos |
 | `reusable-pr-title.yml` | Fail a PR whose title is not a conventional commit (release-please reads it) | All repos |
 | `reusable-resolve-generated-conflicts.yml` | On push to main, merge main into PRs whose only conflicts are generated files, regenerate, push | Repos with generated files |
 | `reusable-security-audit-npm.yml` | Blocking dependency gate: `npm audit` (high+), registry signature check, optional dependency review | Node repos |
-| `reusable-security-audit-pip.yml` | Blocking dependency gate for Python projects (pip-audit) | Python repos |
+| `reusable-security-audit-pip.yml` | Blocking dependency gate for Poetry projects (pip-audit); `working-directory` for monorepos | Python repos |
 
 ## How to call from a service repo
 
@@ -27,15 +27,23 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  issues:
-    types: [opened, assigned]
   pull_request_review:
     types: [submitted]
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  id-token: write
+  actions: read
 jobs:
   claude:
     uses: Utilified/.github/.github/workflows/reusable-claude.yml@main
-    secrets: inherit
+    # Pass only this secret. `secrets: inherit` would hand the agent every secret.
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
+
+`CLAUDE_CODE_OAUTH_TOKEN` is an org secret shared with selected repos. Add a repo to its access list when you add this caller. Use `claude-args`, `allowed-tools` and `disallowed-tools` to tune the model and tool limits per repo.
 
 ```yaml
 # .github/workflows/dependabot-auto-merge.yml
