@@ -46,9 +46,11 @@ on:
         type: string
         default: ""
 
+# Only dependency-review reads the PR, so only it asks for pull-requests: read.
+# A called workflow can't hold more than its caller grants, and pip-audit
+# callers usually grant just contents: read.
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   pip-audit:
@@ -101,6 +103,9 @@ jobs:
     name: Dependency Review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && inputs.enable-dependency-review
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
