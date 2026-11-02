@@ -1,0 +1,13 @@
+name: PR Title
+
+# release-please and the squash commit both read the PR title.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: ./.github/workflows/reusable-pr-title.yml
